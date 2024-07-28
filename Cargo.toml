@@ -1,0 +1,11 @@
+[package]
+name = "lm-sensors-logger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+lazy-regex = "3.2"
+regex = "1"
+rusqlite = { version = "0.32.0", features = ["bundled"] }
