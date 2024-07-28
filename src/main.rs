@@ -76,7 +76,9 @@ fn poll_sensors(bin_path: &str) -> Vec<SensorValue> {
 fn main() {
     let args = Arguments::parse();
 
-    let conn = Connection::open(&args.database_path).expect("Failed to open database.");
+    let mut conn = Connection::open(&args.database_path).expect("Failed to open database.");
+    conn.busy_timeout(Duration::from_secs(args.poll_interval)).expect("Failed to set busy timeout.");
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sensor_values (
             datetime TEXT NOT NULL,
@@ -89,27 +91,32 @@ fn main() {
     )
     .expect("Failed to create table.");
 
-    let mut stmt = conn
-        .prepare(
-            "INSERT INTO sensor_values (datetime, device, label, value, units)
-            VALUES (?, ?, ?, ?, ?)",
-        )
-        .expect("Failed to prepare statement.");
-
     loop {
         let sensor_values = poll_sensors(&args.sensors_path);
         let datetime = Utc::now();
 
-        for sensor_value in sensor_values.iter() {
-            stmt.execute(&[
-                &datetime.to_rfc3339(),
-                &sensor_value.device,
-                &sensor_value.label,
-                &sensor_value.value.to_string(),
-                &sensor_value.units,
-            ])
-            .expect("Failed to insert sensor value.");
+        let tx = conn.transaction().expect("Failed to start transaction.");
+        
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO sensor_values (datetime, device, label, value, units)
+                VALUES (?, ?, ?, ?, ?)",
+            )
+            .expect("Failed to prepare statement.");
+
+            for sensor_value in sensor_values.iter() {
+                stmt.execute(&[
+                    &datetime.to_rfc3339(),
+                    &sensor_value.device,
+                    &sensor_value.label,
+                    &sensor_value.value.to_string(),
+                    &sensor_value.units,
+                ])
+                .expect("Failed to insert sensor value.");
+            }
         }
+
+        tx.commit().expect("Failed to commit transaction.");
 
         sleep(Duration::from_secs(args.poll_interval));
     }
